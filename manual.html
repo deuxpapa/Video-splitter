@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>使い方 - かんたん動画分割</title>
+<style>
+  :root {
+    --bg: #fff8f2;
+    --card: #ffffff;
+    --accent: #ff9533;
+    --accent-dark: #e97e12;
+    --text: #33291f;
+    --text-sub: #7a6e60;
+    --border: #f0e2d3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    line-height: 1.7;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .lead { color: var(--text-sub); font-size: 14px; margin: 0 0 28px; }
+  h2 {
+    font-size: 16px;
+    margin: 36px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+  }
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+  ol.steps > li {
+    display: flex;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+  .step-num {
+    flex: none;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-text { font-size: 14px; }
+  .shot-box {
+    margin-top: 8px;
+    border: 1px dashed #c9b8a3;
+    border-radius: 10px;
+    background: #fffdf9;
+    color: var(--text-sub);
+    font-size: 12px;
+    text-align: center;
+    padding: 26px 10px;
+  }
+  .faq {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .faq dt {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  .faq dt::before { content: "Q. "; color: var(--accent-dark); }
+  .faq dd {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-sub);
+  }
+  .faq dd::before { content: "A. "; color: var(--text); font-weight: 700; }
+  a { color: var(--accent-dark); }
+  .back {
+    display: inline-block;
+    margin-top: 30px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>使い方ガイド</h1>
+  <p class="lead">「かんたん動画分割」を、アプリのように使うための説明です。</p>
+
+  <h2>1. 入れ方（ホーム画面に追加する）</h2>
+  <ol class="steps">
+    <li><span class="step-num">1</span><span class="step-text">Safari（このページ）でアプリのURLを開きます。</span></li>
+    <li><span class="step-num">2</span><span class="step-text">画面下にある「共有」ボタン（四角から矢印が出ているマーク）をタップします。
+      <div class="shot-box">（ここにSafariの共有ボタンのスクリーンショット）</div>
+    </span></li>
+    <li><span class="step-num">3</span><span class="step-text">メニューを下にスクロールして「ホーム画面に追加」をタップします。
+      <div class="shot-box">（ここに「ホーム画面に追加」を選ぶ画面のスクリーンショット）</div>
+    </span></li>
+    <li><span class="step-num">4</span><span class="step-text">右上の「追加」をタップします。ホーム画面にアイコンが増えます。</span></li>
+    <li><span class="step-num">5</span><span class="step-text">次からは、そのアイコンをタップするだけでアプリのように開けます。</span></li>
+  </ol>
+
+  <h2>2. 基本の使い方</h2>
+  <ol class="steps">
+    <li><span class="step-num">1</span><span class="step-text">「動画を選ぶ」ボタンをタップし、写真の中から分割したい動画を選びます。</span></li>
+    <li><span class="step-num">2</span><span class="step-text">「この動画を2分ごとに分割する」ボタンをタップします。</span></li>
+    <li><span class="step-num">3</span><span class="step-text">処理が終わるまで、画面を閉じずに待ちます（動画が長いと数分かかることがあります）。</span></li>
+    <li><span class="step-num">4</span><span class="step-text">分割された動画の一覧が表示されます。それぞれに「元動画の 0:00〜1:59」のように、元の動画の何分何秒から何分何秒までかが書かれています。</span></li>
+    <li><span class="step-num">5</span><span class="step-text">上から順番に「保存する」をタップします。保存の選択肢が出たら、「ビデオを保存」を選ぶと写真アプリに、「ダウンロード」を選ぶとファイルアプリに保存されます。</span></li>
+  </ol>
+
+  <h2>3. よくある困りごと</h2>
+  <dl>
+    <div class="faq">
+      <dt>「処理に失敗しました」と表示された</dt>
+      <dd>端末のメモリが不足している可能性があります。他のアプリを閉じるか、iPhoneを再起動してから、もう一度お試しください。動画が長すぎる場合は、あらかじめ短く撮り直すのも効果的です。</dd>
+    </div>
+    <div class="faq">
+      <dt>分割にとても時間がかかる</dt>
+      <dd>動画が長い・画質が高いほど時間がかかります。数分待っても終わらない場合は、一度アプリを閉じて開き直し、短い動画で試してみてください。</dd>
+    </div>
+    <div class="faq">
+      <dt>「保存する」を押したあと、ちゃんと保存されたか分からない</dt>
+      <dd>ボタンが緑色の「保存済み✓」に変わっていれば、保存の操作をした合図です。実際に保存されているかは、写真アプリまたはファイルアプリをご確認ください。</dd>
+    </div>
+    <div class="faq">
+      <dt>分割した動画の順番が分からなくなった</dt>
+      <dd>それぞれのカードに書かれた番号と「元動画の 0:00〜1:59」のような時間の表示で、順番を確認できます。</dd>
+    </div>
+    <div class="faq">
+      <dt>インターネットがないところでも使える？</dt>
+      <dd>初めて使うときは、処理のしくみを読み込むためにインターネット接続が必要です。2回目以降は端末の状態によって、オフラインでも使える場合があります。</dd>
+    </div>
+  </dl>
+
+  <a class="back" href="index.html">← アプリに戻る</a>
+</div>
+</body>
+</html>

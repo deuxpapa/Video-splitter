@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>かんたん動画分割</title>
+<meta name="description" content="iPhoneで撮った動画を約2分ごとに自動で分割して保存するアプリ">
+<meta name="theme-color" content="#ff9533">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="動画分割">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-header__inner">
+    <h1 class="app-header__title">かんたん動画分割</h1>
+    <a class="app-header__help" href="manual.html" target="_blank" rel="noopener" aria-label="使い方を見る（別のタブで開きます）">
+      <span aria-hidden="true">❓</span> 使い方
+    </a>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <!-- ステップ1：動画選択（空状態） -->
+  <section id="screen-select" class="screen" aria-live="polite">
+    <p class="lead">まずは分割したい動画を選んでください。</p>
+    <p class="sub">動画は2分ずつ（最大1分59秒）に分けて、そのままiPhoneに保存できます。</p>
+
+    <label class="picker-button" for="file-input">
+      <span aria-hidden="true">🎬</span> 動画を選ぶ
+    </label>
+    <input type="file" id="file-input" accept="video/*" class="visually-hidden">
+
+    <p class="privacy-note">選んだ動画はこの端末の中だけで処理されます。どこにも送信されません。</p>
+  </section>
+
+  <!-- ステップ2：選択した動画の確認 -->
+  <section id="screen-ready" class="screen" hidden>
+    <div class="file-card">
+      <div class="file-card__icon" aria-hidden="true">🎞️</div>
+      <div class="file-card__info">
+        <p class="file-card__name" id="ready-filename">-</p>
+        <p class="file-card__meta" id="ready-meta">-</p>
+      </div>
+    </div>
+
+    <button type="button" id="btn-start" class="primary-button">この動画を2分ごとに分割する</button>
+    <button type="button" id="btn-reselect" class="text-button">別の動画を選び直す</button>
+  </section>
+
+  <!-- ステップ3：処理中 -->
+  <section id="screen-processing" class="screen" hidden aria-live="polite">
+    <div class="progress-wrap">
+      <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar-outer">
+        <div class="progress-bar__fill" id="progress-bar-fill"></div>
+      </div>
+      <p class="progress-label" id="progress-label">準備しています…</p>
+    </div>
+    <p class="sub">動画が長いと数分かかることがあります。この画面を閉じずにお待ちください。</p>
+  </section>
+
+  <!-- ステップ4：結果 -->
+  <section id="screen-result" class="screen" hidden>
+    <p class="lead" id="result-heading">分割できました</p>
+    <p class="sub" id="result-single-note" hidden>この動画は2分以内だったため、1つのファイルになりました。</p>
+    <p class="sub">上から順番に保存すると、元の動画の再生順のまま並びます。</p>
+
+    <ul class="segment-list" id="segment-list"></ul>
+
+    <button type="button" id="btn-restart" class="text-button">はじめからやり直す</button>
+  </section>
+
+</main>
+
+<!-- トースト（成功・失敗の合図） -->
+<div id="toast" class="toast" role="status" aria-live="assertive" hidden></div>
+
+<script src="app.js" defer></script>
+</body>
+</html>
