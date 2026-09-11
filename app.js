@@ -1,0 +1,348 @@
+"use strict";
+
+/* ==========================================================
+   かんたん動画分割 - アプリ本体
+   動画を約1分50秒（±5秒程度）ごとに、再エンコードなしで高速に分割する。
+   処理はすべて端末内（ブラウザ内）で完結し、外部へ動画を送信しない。
+   ========================================================== */
+
+const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
+const FFMPEG_VERSION = "0.12.10";
+const UTIL_VERSION = "0.12.1";
+const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_VERSION}/dist/esm`;
+const FFMPEG_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@${FFMPEG_VERSION}/dist/umd`;
+
+const LARGE_FILE_WARN_BYTES = 300 * 1024 * 1024; // 300MB
+
+const screens = {
+  select: document.getElementById("screen-select"),
+  ready: document.getElementById("screen-ready"),
+  processing: document.getElementById("screen-processing"),
+  result: document.getElementById("screen-result"),
+};
+
+const fileInput = document.getElementById("file-input");
+const readyFilename = document.getElementById("ready-filename");
+const readyMeta = document.getElementById("ready-meta");
+const btnStart = document.getElementById("btn-start");
+const btnReselect = document.getElementById("btn-reselect");
+const btnRestart = document.getElementById("btn-restart");
+const progressFill = document.getElementById("progress-bar-fill");
+const progressOuter = document.getElementById("progress-bar-outer");
+const progressLabel = document.getElementById("progress-label");
+const resultHeading = document.getElementById("result-heading");
+const resultSingleNote = document.getElementById("result-single-note");
+const segmentList = document.getElementById("segment-list");
+const toastEl = document.getElementById("toast");
+
+let currentFile = null;
+let ffmpeg = null;
+let toastTimer = null;
+let wakeLock = null;
+
+/* ---------- 画面切り替え ---------- */
+function showScreen(name) {
+  for (const key in screens) {
+    screens[key].hidden = key !== name;
+  }
+}
+
+/* ---------- トースト（成功・失敗の合図） ---------- */
+function showToast(message, type = "success", durationMs) {
+  clearTimeout(toastTimer);
+  toastEl.textContent = message;
+  toastEl.dataset.type = type;
+  toastEl.hidden = false;
+  const defaultDuration = type === "success" ? 1700 : 6000;
+  toastTimer = setTimeout(() => {
+    toastEl.hidden = true;
+  }, durationMs ?? defaultDuration);
+}
+
+const MEMORY_HINT = "端末のメモリが不足していないか確認してください。";
+
+function showErrorToast(detail) {
+  showToast(`処理に失敗しました。${MEMORY_HINT}${detail ? " " + detail : ""}`, "error");
+}
+
+/* ---------- 画面が自動で消えないようにする（対応端末のみ） ---------- */
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => {
+      wakeLock = null;
+    });
+  } catch (e) {
+    // 取得できない場合（バッテリー節約モードなど）でも、分割処理自体は続行する
+    wakeLock = null;
+  }
+}
+
+async function releaseWakeLock() {
+  if (!wakeLock) return;
+  try {
+    await wakeLock.release();
+  } catch (e) { /* 何もしない */ }
+  wakeLock = null;
+}
+
+// 画面ロックなどで一度解除されても、処理中に復帰したら取り直す
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !screens.processing.hidden) {
+    requestWakeLock();
+  }
+});
+
+/* ---------- ユーティリティ ---------- */
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function formatTime(totalSeconds) {
+  const sec = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function getExtension(filename) {
+  const m = /\.([a-zA-Z0-9]+)$/.exec(filename || "");
+  return m ? m[1].toLowerCase() : "mp4";
+}
+
+function getBaseName(filename) {
+  return (filename || "video").replace(/\.[a-zA-Z0-9]+$/, "");
+}
+
+/* ---------- ステップ1→2：ファイル選択 ---------- */
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+  currentFile = file;
+
+  readyFilename.textContent = file.name;
+  readyMeta.textContent = `${formatBytes(file.size)}・動画の長さは分割開始時に確認します`;
+
+  showScreen("ready");
+});
+
+btnReselect.addEventListener("click", () => {
+  resetToSelect();
+});
+
+btnRestart.addEventListener("click", () => {
+  resetToSelect();
+});
+
+function resetToSelect() {
+  currentFile = null;
+  fileInput.value = "";
+  showScreen("select");
+}
+
+/* ---------- 外部スクリプトの読み込み（動画分割エンジン本体） ---------- */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`ライブラリの読み込みに失敗しました: ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+/* ---------- FFmpeg 読み込み ---------- */
+async function ensureFFmpeg() {
+  if (ffmpeg) return ffmpeg;
+
+  if (!window.FFmpegWASM) {
+    await loadScript(`${FFMPEG_BASE}/ffmpeg.js`);
+  }
+  if (!window.FFmpegUtil) {
+    await loadScript(`https://cdn.jsdelivr.net/npm/@ffmpeg/util@${UTIL_VERSION}/dist/umd/index.js`);
+  }
+
+  const { FFmpeg } = window.FFmpegWASM;
+  const { toBlobURL } = window.FFmpegUtil;
+
+  const instance = new FFmpeg();
+
+  instance.on("progress", ({ progress }) => {
+    updateProgress(progress);
+  });
+
+  progressLabel.textContent = "分割の準備をしています…";
+
+  await instance.load({
+    coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
+    wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
+    classWorkerURL: await toBlobURL(`${FFMPEG_BASE}/814.ffmpeg.js`, "text/javascript"),
+  });
+
+  ffmpeg = instance;
+  return ffmpeg;
+}
+
+function updateProgress(ratio) {
+  const pct = Math.min(100, Math.max(0, Math.round((ratio || 0) * 100)));
+  progressFill.style.width = `${pct}%`;
+  progressOuter.setAttribute("aria-valuenow", String(pct));
+  progressLabel.textContent = pct > 0 ? `分割しています…（${pct}%）` : "分割しています…";
+}
+
+/* ---------- ステップ2→3→4：分割開始 ---------- */
+btnStart.addEventListener("click", async () => {
+  if (!currentFile) return;
+
+  if (currentFile.size > LARGE_FILE_WARN_BYTES) {
+    showToast("大きな動画です。端末のメモリが不足する場合があります。", "caution", 5000);
+  }
+
+  showScreen("processing");
+  progressLabel.textContent = "準備しています…";
+  updateProgress(0);
+  await requestWakeLock();
+
+  const ext = getExtension(currentFile.name);
+  const inputName = `input.${ext}`;
+  const baseName = getBaseName(currentFile.name);
+
+  try {
+    const instance = await ensureFFmpeg();
+
+    const fileData = new Uint8Array(await currentFile.arrayBuffer());
+    await instance.writeFile(inputName, fileData);
+
+    progressLabel.textContent = "分割しています…";
+
+    await instance.exec([
+      "-i", inputName,
+      "-c", "copy",
+      "-map", "0",
+      "-f", "segment",
+      "-segment_time", String(SEGMENT_SECONDS),
+      "-reset_timestamps", "1",
+      "-segment_list", "seglist.csv",
+      "-segment_list_type", "csv",
+      "out_%03d.mp4",
+    ]);
+
+    const csvBytes = await instance.readFile("seglist.csv");
+    const csvText = new TextDecoder().decode(csvBytes);
+    const rows = csvText.trim().split("\n").filter(Boolean);
+
+    if (rows.length === 0) {
+      throw new Error("分割結果を読み取れませんでした。");
+    }
+
+    const segments = [];
+    for (let i = 0; i < rows.length; i++) {
+      const [name, startStr, endStr] = rows[i].split(",");
+      const start = parseFloat(startStr);
+      const end = parseFloat(endStr);
+      const data = await instance.readFile(name.trim());
+      const blob = new Blob([data.buffer], { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      segments.push({
+        index: i + 1,
+        start,
+        end,
+        url,
+        filename: `${baseName}_${String(i + 1).padStart(2, "0")}.mp4`,
+        sizeBytes: data.byteLength,
+      });
+    }
+
+    renderResults(segments);
+    showScreen("result");
+    showToast("分割が完了しました", "success");
+
+    // メモリを解放する（次回はまた読み込み直す）
+    try {
+      instance.terminate();
+    } catch (e) { /* 何もしない */ }
+    ffmpeg = null;
+  } catch (err) {
+    console.error(err);
+    ffmpeg = null;
+    showErrorToast("動画を短くするか、他のアプリを閉じてからもう一度お試しください。");
+    showScreen("ready");
+  } finally {
+    releaseWakeLock();
+  }
+});
+
+/* ---------- 結果表示 ---------- */
+function renderResults(segments) {
+  segmentList.innerHTML = "";
+  resultHeading.textContent = `${segments.length}個に分割できました`;
+  resultSingleNote.hidden = segments.length !== 1;
+
+  for (const seg of segments) {
+    const li = document.createElement("li");
+    li.className = "segment-item";
+
+    const badge = document.createElement("div");
+    badge.className = "segment-item__badge";
+    badge.textContent = String(seg.index);
+    badge.setAttribute("aria-hidden", "true");
+
+    const info = document.createElement("div");
+    info.className = "segment-item__info";
+
+    const range = document.createElement("p");
+    range.className = "segment-item__range";
+    range.textContent = `元動画の ${formatTime(seg.start)}〜${formatTime(seg.end)}`;
+
+    const dur = document.createElement("p");
+    dur.className = "segment-item__dur";
+    dur.textContent = `長さ ${formatTime(seg.end - seg.start)}・${formatBytes(seg.sizeBytes)}`;
+
+    info.appendChild(range);
+    info.appendChild(dur);
+
+    const saveBtn = document.createElement("a");
+    saveBtn.className = "segment-item__save";
+    saveBtn.href = seg.url;
+    saveBtn.download = seg.filename;
+    saveBtn.textContent = "保存する";
+    saveBtn.setAttribute("aria-label", `${seg.index}番目（元動画の${formatTime(seg.start)}から${formatTime(seg.end)}）を保存する`);
+    saveBtn.addEventListener("click", () => {
+      saveBtn.textContent = "保存済み ✓";
+      saveBtn.dataset.saved = "true";
+      showToast(`${seg.index}番目を保存しました`, "success");
+    });
+
+    li.appendChild(badge);
+    li.appendChild(info);
+    li.appendChild(saveBtn);
+    segmentList.appendChild(li);
+  }
+}
+
+/* ---------- 想定外のクラッシュも必ず日本語で伝える ---------- */
+window.addEventListener("error", () => {
+  if (!screens.processing.hidden) {
+    releaseWakeLock();
+    showErrorToast();
+    showScreen("ready");
+  }
+});
+window.addEventListener("unhandledrejection", () => {
+  if (!screens.processing.hidden) {
+    releaseWakeLock();
+    showErrorToast();
+    showScreen("ready");
+  }
+});
+
+/* ---------- PWA: サービスワーカー登録 ---------- */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // オフライン用の登録に失敗しても、通常の利用には影響しない
+    });
+  });
+}
