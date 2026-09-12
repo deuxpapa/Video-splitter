@@ -333,6 +333,9 @@ function renderResults(segments) {
     const li = document.createElement("li");
     li.className = "segment-item";
 
+    const row = document.createElement("div");
+    row.className = "segment-item__row";
+
     const badge = document.createElement("div");
     badge.className = "segment-item__badge";
     badge.textContent = String(seg.index);
@@ -359,9 +362,25 @@ function renderResults(segments) {
     saveBtn.setAttribute("aria-label", `${seg.index}番目（元動画の${formatTime(seg.start)}から${formatTime(seg.end)}）を保存する`);
     saveBtn.addEventListener("click", () => saveSegment(seg, saveBtn));
 
-    li.appendChild(badge);
-    li.appendChild(info);
-    li.appendChild(saveBtn);
+    row.appendChild(badge);
+    row.appendChild(info);
+    row.appendChild(saveBtn);
+
+    const preview = document.createElement("video");
+    preview.className = "segment-item__preview";
+    preview.src = seg.url;
+    preview.controls = true;
+    preview.playsInline = true;
+    preview.preload = "metadata";
+    preview.setAttribute("aria-label", `${seg.index}番目のプレビュー`);
+
+    const hint = document.createElement("p");
+    hint.className = "segment-item__hint";
+    hint.textContent = "動画を長押し→「ビデオを保存」で、写真に直接保存できます";
+
+    li.appendChild(row);
+    li.appendChild(preview);
+    li.appendChild(hint);
     segmentList.appendChild(li);
   }
 }
