@@ -1,4 +1,4 @@
-const CACHE_NAME = "video-splitter-shell-v1";
+const CACHE_NAME = "video-splitter-shell-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -33,7 +33,16 @@ self.addEventListener("fetch", (event) => {
     // 動画処理エンジン（外部）へのリクエストはそのままネットワークへ流す
     return;
   }
+  // ネット接続があるときは常に最新版を取りに行き、取れた分をキャッシュに保存する。
+  // オフラインなど取得に失敗したときだけ、保存済みのキャッシュを使う。
+  // （キャッシュ優先にすると、更新してもずっと古い画面のままになってしまうため）
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
