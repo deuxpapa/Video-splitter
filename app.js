@@ -250,6 +250,7 @@ btnStart.addEventListener("click", async () => {
         start,
         end,
         url,
+        blob,
         filename: `${baseName}_${String(i + 1).padStart(2, "0")}.mp4`,
         sizeBytes: data.byteLength,
       });
@@ -273,6 +274,54 @@ btnStart.addEventListener("click", async () => {
     releaseWakeLock();
   }
 });
+
+/* ---------- 保存する（共有シート経由。使えない環境ではダウンロードにフォールバック） ---------- */
+function markSaved(btn) {
+  btn.textContent = "保存済み ✓";
+  btn.dataset.saved = "true";
+}
+
+function fallbackDownload(seg) {
+  const a = document.createElement("a");
+  a.href = seg.url;
+  a.download = seg.filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function saveSegment(seg, btn) {
+  const file = new File([seg.blob], seg.filename, { type: "video/mp4" });
+  let canShareFile = false;
+  if (typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+    try {
+      canShareFile = navigator.canShare({ files: [file] });
+    } catch (e) {
+      canShareFile = false;
+    }
+  }
+
+  if (canShareFile) {
+    try {
+      await navigator.share({ files: [file] });
+      markSaved(btn);
+      showToast(`${seg.index}番目を保存しました`, "success");
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        // 共有シートをキャンセルしただけなので、何もしない
+        return;
+      }
+      console.error(err);
+      showToast(`共有に失敗しました。${MEMORY_HINT}`, "error");
+    }
+    return;
+  }
+
+  // 共有シートが使えない環境（PCのブラウザなど）ではダウンロードに切り替える
+  fallbackDownload(seg);
+  markSaved(btn);
+  showToast(`${seg.index}番目を保存しました`, "success");
+}
 
 /* ---------- 結果表示 ---------- */
 function renderResults(segments) {
@@ -303,17 +352,12 @@ function renderResults(segments) {
     info.appendChild(range);
     info.appendChild(dur);
 
-    const saveBtn = document.createElement("a");
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
     saveBtn.className = "segment-item__save";
-    saveBtn.href = seg.url;
-    saveBtn.download = seg.filename;
     saveBtn.textContent = "保存する";
     saveBtn.setAttribute("aria-label", `${seg.index}番目（元動画の${formatTime(seg.start)}から${formatTime(seg.end)}）を保存する`);
-    saveBtn.addEventListener("click", () => {
-      saveBtn.textContent = "保存済み ✓";
-      saveBtn.dataset.saved = "true";
-      showToast(`${seg.index}番目を保存しました`, "success");
-    });
+    saveBtn.addEventListener("click", () => saveSegment(seg, saveBtn));
 
     li.appendChild(badge);
     li.appendChild(info);
