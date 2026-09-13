@@ -7,9 +7,11 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.5";
+const APP_VERSION = "2026-09-13.6";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
+const TARGET_SEGMENT_BYTES = 70 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
+const MIN_SEGMENT_SECONDS = 20; // パーツを短くする場合でも、これより短くはしない
 const FFMPEG_VERSION = "0.12.10";
 const UTIL_VERSION = "0.12.1";
 const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_VERSION}/dist/esm`;
@@ -283,7 +285,17 @@ btnStart.addEventListener("click", async () => {
     progressLabel.textContent = "動画の長さを確認しています…";
     const duration = await probeDuration(instance, inputName);
     const totalSeconds = duration && duration > 0 ? duration : SEGMENT_SECONDS;
-    const segmentCount = Math.max(1, Math.ceil(totalSeconds / SEGMENT_SECONDS));
+
+    // 動画のビットレート（1秒あたりのデータ量）を概算し、大きい動画では
+    // パーツ1個分のデータ量が目標値を超えないよう、区切り時間を自動で短くする。
+    // （パーツを処理する間、元動画とパーツの両方をメモリ上に抱えるため、
+    // 　パーツが大きいほどメモリ不足になりやすい）
+    const bytesPerSecond = currentFile.size / totalSeconds;
+    const effectiveSegmentSeconds = Math.max(
+      MIN_SEGMENT_SECONDS,
+      Math.min(SEGMENT_SECONDS, Math.floor(TARGET_SEGMENT_BYTES / bytesPerSecond))
+    );
+    const segmentCount = Math.max(1, Math.ceil(totalSeconds / effectiveSegmentSeconds));
 
     // 1パーツずつ順番に処理する。前のパーツの出力は読み取り次第すぐ消すため、
     // 同時に抱えるデータは「元動画1本 + 今処理中のパーツ1個分」で済み、
@@ -296,12 +308,12 @@ btnStart.addEventListener("click", async () => {
       updateProgress(progressBase);
 
       const outName = `out_${String(i).padStart(3, "0")}.mp4`;
-      const nominalStart = i * SEGMENT_SECONDS;
+      const nominalStart = i * effectiveSegmentSeconds;
 
       await instance.exec([
         "-ss", String(nominalStart),
         "-i", inputName,
-        "-t", String(SEGMENT_SECONDS),
+        "-t", String(effectiveSegmentSeconds),
         "-map", "0:v:0",
         "-map", "0:a:0?",
         "-c", "copy",
@@ -323,7 +335,7 @@ btnStart.addEventListener("click", async () => {
       segments.push({
         index: segments.length + 1,
         start: nominalStart,
-        end: Math.min(nominalStart + SEGMENT_SECONDS, totalSeconds),
+        end: Math.min(nominalStart + effectiveSegmentSeconds, totalSeconds),
         url,
         blob,
         filename: `${baseName}_${String(segments.length + 1).padStart(2, "0")}.mp4`,
