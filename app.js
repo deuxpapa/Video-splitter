@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.4";
+const APP_VERSION = "2026-09-14.5";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -36,6 +36,7 @@ const progressOuter = document.getElementById("progress-bar-outer");
 const progressLabel = document.getElementById("progress-label");
 const progressElapsedEl = document.getElementById("progress-elapsed");
 const resultHeading = document.getElementById("result-heading");
+const resultElapsedEl = document.getElementById("result-elapsed");
 const resultSingleNote = document.getElementById("result-single-note");
 const segmentList = document.getElementById("segment-list");
 const toastEl = document.getElementById("toast");
@@ -246,11 +247,16 @@ function stopElapsedTimer() {
   progressElapsedEl.textContent = "";
 }
 
-function updateElapsedDisplay() {
-  const sec = Math.floor((Date.now() - elapsedStartMs) / 1000);
+function formatDuration(totalSec) {
+  const sec = Math.max(0, Math.floor(totalSec));
   const m = Math.floor(sec / 60);
   const s = sec % 60;
-  progressElapsedEl.textContent = m > 0 ? `経過時間 ${m}分${s}秒` : `経過時間 ${s}秒`;
+  return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+}
+
+function updateElapsedDisplay() {
+  const sec = (Date.now() - elapsedStartMs) / 1000;
+  progressElapsedEl.textContent = `経過時間 ${formatDuration(sec)}`;
 }
 
 /* ---------- 動画の長さ・撮影日時を取得（ffprobeの代わりにログから読み取る） ---------- */
@@ -461,6 +467,7 @@ btnStart.addEventListener("click", async () => {
     }
 
     renderResults(segments);
+    resultElapsedEl.textContent = `処理時間 ${formatDuration((Date.now() - elapsedStartMs) / 1000)}`;
     showScreen("result");
     showToast("分割が完了しました", "success");
   } catch (err) {
@@ -569,7 +576,13 @@ function renderResults(segments) {
     const preview = document.createElement("video");
     preview.className = "segment-item__preview";
     preview.src = seg.url;
-    preview.controls = true;
+    // 再生バー付き（controls）だと、長押しがシーク用のルーペ機能に取られてしまい、
+    // 「ビデオを保存」の長押しメニューが出てこない。そのため、操作用のバーは持たせず
+    // 無音の自動再生ループにする（内容を見るだけならこれで十分）。
+    preview.controls = false;
+    preview.muted = true;
+    preview.loop = true;
+    preview.autoplay = true;
     preview.playsInline = true;
     // blob: URL（端末内のデータ）なので、"auto" にしても通信は発生しない。
     // "metadata" のままだと、iPhoneで長押しの「ビデオを保存」が反応しないことがあるため。
