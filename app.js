@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.3";
+const APP_VERSION = "2026-09-13.4";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const FFMPEG_VERSION = "0.12.10";
@@ -245,8 +245,9 @@ btnStart.addEventListener("click", async () => {
   try {
     const instance = await ensureFFmpeg();
 
-    const fileData = new Uint8Array(await currentFile.arrayBuffer());
+    let fileData = new Uint8Array(await currentFile.arrayBuffer());
     await instance.writeFile(inputName, fileData);
+    fileData = null; // 書き込み終わったら、JS側が持つ分（動画と同じ大きさ）を早めに解放する
 
     progressLabel.textContent = "分割しています…";
 
@@ -262,6 +263,11 @@ btnStart.addEventListener("click", async () => {
       "-segment_list_type", "csv",
       "out_%03d.mp4",
     ]);
+
+    // 分割済みなので、もう不要な元動画の分（内部メモリ側）も解放する
+    try {
+      await instance.deleteFile(inputName);
+    } catch (e) { /* 何もしない */ }
 
     const csvBytes = await instance.readFile("seglist.csv");
     const csvText = new TextDecoder().decode(csvBytes);
@@ -279,6 +285,9 @@ btnStart.addEventListener("click", async () => {
       const data = await instance.readFile(name.trim());
       const blob = new Blob([data.buffer], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
+      try {
+        await instance.deleteFile(name.trim());
+      } catch (e) { /* 何もしない */ }
       segments.push({
         index: i + 1,
         start,
