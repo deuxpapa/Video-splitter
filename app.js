@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.9";
+const APP_VERSION = "2026-09-14.1";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -308,15 +308,29 @@ btnStart.addEventListener("click", async () => {
   const baseName = getBaseName(currentFile.name);
 
   try {
-    const instance = await ensureFFmpeg();
+    // 動画の長さ・撮影日時を確認するためだけに、一度エンジンを読み込む。
+    // 確認が終わったら、このエンジンは完全に終了させる（下記参照）。
+    let probeInstance = await ensureFFmpeg();
 
     let fileData = new Uint8Array(await currentFile.arrayBuffer());
-    await instance.writeFile(inputName, fileData);
+    await probeInstance.writeFile(inputName, fileData);
     fileData = null; // 書き込み終わったら、JS側が持つ分（動画と同じ大きさ）を早めに解放する
 
     progressLabel.textContent = "動画の長さを確認しています…";
-    const { durationSeconds, creationDate } = await probeMediaInfo(instance, inputName);
+    const { durationSeconds, creationDate } = await probeMediaInfo(probeInstance, inputName);
     const totalSeconds = durationSeconds && durationSeconds > 0 ? durationSeconds : SEGMENT_SECONDS;
+
+    // ここでエンジンを完全に終了する。パーツを1個処理するごとにエンジンを
+    // 作り直すことで、処理を重ねるうちに内部状態が少しずつ積み上がって
+    // メモリを圧迫する（＝クラッシュしやすくなる）のを防ぐ。
+    try {
+      await probeInstance.deleteFile(inputName);
+    } catch (e) { /* 何もしない */ }
+    try {
+      probeInstance.terminate();
+    } catch (e) { /* 何もしない */ }
+    ffmpeg = null;
+    probeInstance = null;
 
     // 動画のビットレート（1秒あたりのデータ量）を概算し、大きい動画では
     // パーツ1個分のデータ量が目標値を超えないよう、区切り時間を自動で短くする。
@@ -338,14 +352,20 @@ btnStart.addEventListener("click", async () => {
       }
     }
 
-    // 1パーツずつ順番に処理する。前のパーツの出力は読み取り次第すぐ消すため、
-    // 同時に抱えるデータは「元動画1本 + 今処理中のパーツ1個分」で済み、
-    // 動画全体をまとめて分割するより使用メモリを大きく抑えられる。
+    // 1パーツずつ順番に処理する。パーツごとにエンジンを作り直して完全に
+    // 終了させることで、処理を重ねてもメモリ使用量が積み上がらないようにする。
     const segments = [];
     for (let i = 0; i < segmentCount; i++) {
       progressBase = i / segmentCount;
       progressWeight = 1 / segmentCount;
       progressPartLabel = segmentCount > 1 ? `（${i + 1}/${segmentCount}個目）` : "";
+      progressLabel.textContent = `準備しています…${progressPartLabel}`;
+
+      const segInstance = await ensureFFmpeg();
+      let segFileData = new Uint8Array(await currentFile.arrayBuffer());
+      await segInstance.writeFile(inputName, segFileData);
+      segFileData = null;
+
       updateProgress(progressBase);
 
       const outName = `out_${String(i).padStart(3, "0")}.mp4`;
@@ -377,12 +397,19 @@ btnStart.addEventListener("click", async () => {
       }
       execArgs.push(outName);
 
-      await instance.exec(execArgs);
+      await segInstance.exec(execArgs);
 
-      const data = await instance.readFile(outName);
+      const data = await segInstance.readFile(outName);
       try {
-        await instance.deleteFile(outName);
+        await segInstance.deleteFile(outName);
       } catch (e) { /* 何もしない */ }
+      try {
+        await segInstance.deleteFile(inputName);
+      } catch (e) { /* 何もしない */ }
+      try {
+        segInstance.terminate();
+      } catch (e) { /* 何もしない */ }
+      ffmpeg = null;
 
       if (data.byteLength === 0) {
         // 最後のパーツが動画の終端をわずかに超えて要求した場合など。中身が無いので無視する。
@@ -402,11 +429,6 @@ btnStart.addEventListener("click", async () => {
       });
     }
 
-    // 分割済みなので、もう不要な元動画の分（内部メモリ側）も解放する
-    try {
-      await instance.deleteFile(inputName);
-    } catch (e) { /* 何もしない */ }
-
     if (segments.length === 0) {
       throw new Error("分割結果を読み取れませんでした。");
     }
@@ -414,12 +436,6 @@ btnStart.addEventListener("click", async () => {
     renderResults(segments);
     showScreen("result");
     showToast("分割が完了しました", "success");
-
-    // メモリを解放する（次回はまた読み込み直す）
-    try {
-      instance.terminate();
-    } catch (e) { /* 何もしない */ }
-    ffmpeg = null;
   } catch (err) {
     console.error(err);
     ffmpeg = null;
