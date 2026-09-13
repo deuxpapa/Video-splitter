@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.2";
+const APP_VERSION = "2026-09-14.3";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -17,8 +17,6 @@ const FFMPEG_VERSION = "0.12.10";
 const UTIL_VERSION = "0.12.1";
 const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_VERSION}/dist/esm`;
 const FFMPEG_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@${FFMPEG_VERSION}/dist/umd`;
-
-const LARGE_FILE_WARN_BYTES = 300 * 1024 * 1024; // 300MB
 
 const screens = {
   select: document.getElementById("screen-select"),
@@ -36,6 +34,7 @@ const btnRestart = document.getElementById("btn-restart");
 const progressFill = document.getElementById("progress-bar-fill");
 const progressOuter = document.getElementById("progress-bar-outer");
 const progressLabel = document.getElementById("progress-label");
+const progressElapsedEl = document.getElementById("progress-elapsed");
 const resultHeading = document.getElementById("result-heading");
 const resultSingleNote = document.getElementById("result-single-note");
 const segmentList = document.getElementById("segment-list");
@@ -230,6 +229,30 @@ function updateProgress(ratio) {
   progressLabel.textContent = `分割しています…${progressPartLabel}（${pct}%）`;
 }
 
+/* ---------- 経過時間の表示（止まって見えるのを防ぐ） ---------- */
+let elapsedTimerId = null;
+let elapsedStartMs = 0;
+
+function startElapsedTimer() {
+  elapsedStartMs = Date.now();
+  updateElapsedDisplay();
+  clearInterval(elapsedTimerId);
+  elapsedTimerId = setInterval(updateElapsedDisplay, 1000);
+}
+
+function stopElapsedTimer() {
+  clearInterval(elapsedTimerId);
+  elapsedTimerId = null;
+  progressElapsedEl.textContent = "";
+}
+
+function updateElapsedDisplay() {
+  const sec = Math.floor((Date.now() - elapsedStartMs) / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  progressElapsedEl.textContent = m > 0 ? `経過時間 ${m}分${s}秒` : `経過時間 ${s}秒`;
+}
+
 /* ---------- 動画の長さ・撮影日時を取得（ffprobeの代わりにログから読み取る） ---------- */
 async function probeMediaInfo(instance, inputName) {
   let durationText = "";
@@ -291,16 +314,13 @@ btnStart.addEventListener("click", async () => {
   clearErrorDetail();
   ffmpegLog = [];
 
-  if (currentFile.size > LARGE_FILE_WARN_BYTES) {
-    showToast("大きな動画です。端末のメモリが不足する場合があります。", "caution", 5000);
-  }
-
   showScreen("processing");
   progressBase = 0;
   progressWeight = 1;
   progressPartLabel = "";
   progressLabel.textContent = "準備しています…";
   updateProgress(0);
+  startElapsedTimer();
   await requestWakeLock();
 
   const ext = getExtension(currentFile.name);
@@ -312,6 +332,7 @@ btnStart.addEventListener("click", async () => {
     // 確認が終わったら、このエンジンは完全に終了させる（下記参照）。
     let probeInstance = await ensureFFmpeg();
 
+    progressLabel.textContent = "動画を読み込んでいます…";
     let fileData = new Uint8Array(await currentFile.arrayBuffer());
     await probeInstance.writeFile(inputName, fileData);
     fileData = null; // 書き込み終わったら、JS側が持つ分（動画と同じ大きさ）を早めに解放する
@@ -362,10 +383,13 @@ btnStart.addEventListener("click", async () => {
       progressLabel.textContent = `準備しています…${progressPartLabel}`;
 
       const segInstance = await ensureFFmpeg();
+
+      progressLabel.textContent = `動画を読み込んでいます…${progressPartLabel}`;
       let segFileData = new Uint8Array(await currentFile.arrayBuffer());
       await segInstance.writeFile(inputName, segFileData);
       segFileData = null;
 
+      progressLabel.textContent = `切り出しています…${progressPartLabel}`;
       updateProgress(progressBase);
 
       const outName = `out_${String(i).padStart(3, "0")}.mp4`;
@@ -446,6 +470,7 @@ btnStart.addEventListener("click", async () => {
     showErrorDetail(err);
     showScreen("ready");
   } finally {
+    stopElapsedTimer();
     releaseWakeLock();
   }
 });
@@ -563,6 +588,7 @@ function renderResults(segments) {
 /* ---------- 想定外のクラッシュも必ず日本語で伝える ---------- */
 window.addEventListener("error", (event) => {
   if (!screens.processing.hidden) {
+    stopElapsedTimer();
     releaseWakeLock();
     showErrorToast();
     showErrorDetail(event.error || { name: "Error", message: event.message });
@@ -571,6 +597,7 @@ window.addEventListener("error", (event) => {
 });
 window.addEventListener("unhandledrejection", (event) => {
   if (!screens.processing.hidden) {
+    stopElapsedTimer();
     releaseWakeLock();
     showErrorToast();
     showErrorDetail(event.reason);
