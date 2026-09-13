@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.4";
+const APP_VERSION = "2026-09-13.5";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const FFMPEG_VERSION = "0.12.10";
@@ -197,7 +197,7 @@ async function ensureFFmpeg() {
   const instance = new FFmpeg();
 
   instance.on("progress", ({ progress }) => {
-    updateProgress(progress);
+    updateProgress(progressBase + (progress || 0) * progressWeight);
   });
   instance.on("log", ({ message }) => {
     ffmpegLog.push(message);
@@ -216,11 +216,39 @@ async function ensureFFmpeg() {
   return ffmpeg;
 }
 
+let progressBase = 0; // 完了済みパーツ分の進捗（0〜1）
+let progressWeight = 1; // 今のパーツ1個分が、全体のうちどれだけの割合か
+let progressPartLabel = ""; // 「（2/5個目）」のような表示
+
 function updateProgress(ratio) {
   const pct = Math.min(100, Math.max(0, Math.round((ratio || 0) * 100)));
   progressFill.style.width = `${pct}%`;
   progressOuter.setAttribute("aria-valuenow", String(pct));
-  progressLabel.textContent = pct > 0 ? `分割しています…（${pct}%）` : "分割しています…";
+  progressLabel.textContent = `分割しています…${progressPartLabel}（${pct}%）`;
+}
+
+/* ---------- 動画の長さを取得（ffprobeの代わりにログから読み取る） ---------- */
+async function probeDuration(instance, inputName) {
+  let durationText = "";
+  const onLog = ({ message }) => {
+    const m = /Duration:\s*(\d\d):(\d\d):(\d\d)\.(\d+)/.exec(message);
+    if (m) durationText = m[0];
+  };
+  instance.on("log", onLog);
+  try {
+    await instance.exec(["-i", inputName]);
+  } catch (e) {
+    // 出力先を指定していないため、ffmpegは必ずエラー終了する（想定内）
+  }
+  instance.off("log", onLog);
+
+  const m = /Duration:\s*(\d\d):(\d\d):(\d\d)\.(\d+)/.exec(durationText);
+  if (!m) return null;
+  const hours = parseInt(m[1], 10);
+  const mins = parseInt(m[2], 10);
+  const secs = parseInt(m[3], 10);
+  const frac = parseInt(m[4], 10) / Math.pow(10, m[4].length);
+  return hours * 3600 + mins * 60 + secs + frac;
 }
 
 /* ---------- ステップ2→3→4：分割開始 ---------- */
@@ -234,6 +262,9 @@ btnStart.addEventListener("click", async () => {
   }
 
   showScreen("processing");
+  progressBase = 0;
+  progressWeight = 1;
+  progressPartLabel = "";
   progressLabel.textContent = "準備しています…";
   updateProgress(0);
   await requestWakeLock();
@@ -249,54 +280,64 @@ btnStart.addEventListener("click", async () => {
     await instance.writeFile(inputName, fileData);
     fileData = null; // 書き込み終わったら、JS側が持つ分（動画と同じ大きさ）を早めに解放する
 
-    progressLabel.textContent = "分割しています…";
+    progressLabel.textContent = "動画の長さを確認しています…";
+    const duration = await probeDuration(instance, inputName);
+    const totalSeconds = duration && duration > 0 ? duration : SEGMENT_SECONDS;
+    const segmentCount = Math.max(1, Math.ceil(totalSeconds / SEGMENT_SECONDS));
 
-    await instance.exec([
-      "-i", inputName,
-      "-map", "0:v:0",
-      "-map", "0:a:0?",
-      "-c", "copy",
-      "-f", "segment",
-      "-segment_time", String(SEGMENT_SECONDS),
-      "-reset_timestamps", "1",
-      "-segment_list", "seglist.csv",
-      "-segment_list_type", "csv",
-      "out_%03d.mp4",
-    ]);
+    // 1パーツずつ順番に処理する。前のパーツの出力は読み取り次第すぐ消すため、
+    // 同時に抱えるデータは「元動画1本 + 今処理中のパーツ1個分」で済み、
+    // 動画全体をまとめて分割するより使用メモリを大きく抑えられる。
+    const segments = [];
+    for (let i = 0; i < segmentCount; i++) {
+      progressBase = i / segmentCount;
+      progressWeight = 1 / segmentCount;
+      progressPartLabel = segmentCount > 1 ? `（${i + 1}/${segmentCount}個目）` : "";
+      updateProgress(progressBase);
+
+      const outName = `out_${String(i).padStart(3, "0")}.mp4`;
+      const nominalStart = i * SEGMENT_SECONDS;
+
+      await instance.exec([
+        "-ss", String(nominalStart),
+        "-i", inputName,
+        "-t", String(SEGMENT_SECONDS),
+        "-map", "0:v:0",
+        "-map", "0:a:0?",
+        "-c", "copy",
+        outName,
+      ]);
+
+      const data = await instance.readFile(outName);
+      try {
+        await instance.deleteFile(outName);
+      } catch (e) { /* 何もしない */ }
+
+      if (data.byteLength === 0) {
+        // 最後のパーツが動画の終端をわずかに超えて要求した場合など。中身が無いので無視する。
+        continue;
+      }
+
+      const blob = new Blob([data.buffer], { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      segments.push({
+        index: segments.length + 1,
+        start: nominalStart,
+        end: Math.min(nominalStart + SEGMENT_SECONDS, totalSeconds),
+        url,
+        blob,
+        filename: `${baseName}_${String(segments.length + 1).padStart(2, "0")}.mp4`,
+        sizeBytes: data.byteLength,
+      });
+    }
 
     // 分割済みなので、もう不要な元動画の分（内部メモリ側）も解放する
     try {
       await instance.deleteFile(inputName);
     } catch (e) { /* 何もしない */ }
 
-    const csvBytes = await instance.readFile("seglist.csv");
-    const csvText = new TextDecoder().decode(csvBytes);
-    const rows = csvText.trim().split("\n").filter(Boolean);
-
-    if (rows.length === 0) {
+    if (segments.length === 0) {
       throw new Error("分割結果を読み取れませんでした。");
-    }
-
-    const segments = [];
-    for (let i = 0; i < rows.length; i++) {
-      const [name, startStr, endStr] = rows[i].split(",");
-      const start = parseFloat(startStr);
-      const end = parseFloat(endStr);
-      const data = await instance.readFile(name.trim());
-      const blob = new Blob([data.buffer], { type: "video/mp4" });
-      const url = URL.createObjectURL(blob);
-      try {
-        await instance.deleteFile(name.trim());
-      } catch (e) { /* 何もしない */ }
-      segments.push({
-        index: i + 1,
-        start,
-        end,
-        url,
-        blob,
-        filename: `${baseName}_${String(i + 1).padStart(2, "0")}.mp4`,
-        sizeBytes: data.byteLength,
-      });
     }
 
     renderResults(segments);
