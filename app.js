@@ -7,11 +7,12 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.8";
+const APP_VERSION = "2026-09-13.9";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
 const MIN_SEGMENT_SECONDS = 20; // パーツを短くする場合でも、これより短くはしない
+const MIN_TAIL_SECONDS = 5; // 最後の端数がこの秒数以下なら、独立させず1つ前のパーツに含める
 const FFMPEG_VERSION = "0.12.10";
 const UTIL_VERSION = "0.12.1";
 const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_VERSION}/dist/esm`;
@@ -268,6 +269,22 @@ async function probeMediaInfo(instance, inputName) {
   return { durationSeconds, creationDate };
 }
 
+// 写真アプリが動画の日付表示に使う、Apple独自のメタデータ形式
+// （例: 2022-04-07T17:48:02+0900）。端末のタイムゾーンで書き出す。
+function toAppleDateString(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const offsetMin = -date.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const absMin = Math.abs(offsetMin);
+  const offH = pad(Math.floor(absMin / 60));
+  const offM = pad(absMin % 60);
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+    `${sign}${offH}${offM}`
+  );
+}
+
 /* ---------- ステップ2→3→4：分割開始 ---------- */
 btnStart.addEventListener("click", async () => {
   if (!currentFile) return;
@@ -310,7 +327,16 @@ btnStart.addEventListener("click", async () => {
       MIN_SEGMENT_SECONDS,
       Math.min(SEGMENT_SECONDS, Math.floor(TARGET_SEGMENT_BYTES / bytesPerSecond))
     );
-    const segmentCount = Math.max(1, Math.ceil(totalSeconds / effectiveSegmentSeconds));
+    let segmentCount = Math.max(1, Math.ceil(totalSeconds / effectiveSegmentSeconds));
+    // 最後のパーツが短すぎる（5秒以内）場合は、独立した1パーツにはせず、
+    // 1つ前のパーツに吸収させる（＝パーツ数を1減らし、最後のパーツは動画の終端まで含める）。
+    if (segmentCount > 1) {
+      const lastPartSeconds = totalSeconds - (segmentCount - 1) * effectiveSegmentSeconds;
+      // 動画の長さの読み取りには小さな誤差があるため、少し余裕を持たせて比較する
+      if (lastPartSeconds <= MIN_TAIL_SECONDS + 1) {
+        segmentCount -= 1;
+      }
+    }
 
     // 1パーツずつ順番に処理する。前のパーツの出力は読み取り次第すぐ消すため、
     // 同時に抱えるデータは「元動画1本 + 今処理中のパーツ1個分」で済み、
@@ -324,21 +350,30 @@ btnStart.addEventListener("click", async () => {
 
       const outName = `out_${String(i).padStart(3, "0")}.mp4`;
       const nominalStart = i * effectiveSegmentSeconds;
+      const isLast = i === segmentCount - 1;
 
       const execArgs = [
         "-ss", String(nominalStart),
         "-i", inputName,
-        "-t", String(effectiveSegmentSeconds),
+      ];
+      // 最後のパーツだけは長さを指定せず、動画の終端までそのまま含める
+      // （吸収された端数分もここに含まれる）
+      if (!isLast) {
+        execArgs.push("-t", String(effectiveSegmentSeconds));
+      }
+      execArgs.push(
         "-map", "0:v:0",
         "-map", "0:a:0?",
         "-c", "copy",
-        "-map_metadata", "0",
-      ];
+        "-map_metadata", "0"
+      );
       if (creationDate) {
         // 写真アプリで「分割前データの直後」に順番通り並ぶよう、
         // 元動画の撮影日時 + このパーツの開始位置（+1秒）を撮影日時として設定する。
         const segTime = new Date(creationDate.getTime() + (nominalStart + 1) * 1000);
         execArgs.push("-metadata", `creation_time=${segTime.toISOString()}`);
+        // 写真アプリが実際に参照するApple独自のキーにも同じ日時を設定する
+        execArgs.push("-metadata", `com.apple.quicktime.creationdate=${toAppleDateString(segTime)}`);
       }
       execArgs.push(outName);
 
@@ -359,7 +394,7 @@ btnStart.addEventListener("click", async () => {
       segments.push({
         index: segments.length + 1,
         start: nominalStart,
-        end: Math.min(nominalStart + effectiveSegmentSeconds, totalSeconds),
+        end: isLast ? totalSeconds : nominalStart + effectiveSegmentSeconds,
         url,
         blob,
         filename: `${baseName}_${String(segments.length + 1).padStart(2, "0")}.mp4`,
