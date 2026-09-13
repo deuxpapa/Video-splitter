@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.3";
+const APP_VERSION = "2026-09-14.4";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -571,7 +571,9 @@ function renderResults(segments) {
     preview.src = seg.url;
     preview.controls = true;
     preview.playsInline = true;
-    preview.preload = "metadata";
+    // blob: URL（端末内のデータ）なので、"auto" にしても通信は発生しない。
+    // "metadata" のままだと、iPhoneで長押しの「ビデオを保存」が反応しないことがあるため。
+    preview.preload = "auto";
     preview.setAttribute("aria-label", `${seg.index}番目のプレビュー`);
 
     const hint = document.createElement("p");
