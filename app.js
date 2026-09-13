@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.7";
+const APP_VERSION = "2026-09-13.8";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -229,12 +229,17 @@ function updateProgress(ratio) {
   progressLabel.textContent = `分割しています…${progressPartLabel}（${pct}%）`;
 }
 
-/* ---------- 動画の長さを取得（ffprobeの代わりにログから読み取る） ---------- */
-async function probeDuration(instance, inputName) {
+/* ---------- 動画の長さ・撮影日時を取得（ffprobeの代わりにログから読み取る） ---------- */
+async function probeMediaInfo(instance, inputName) {
   let durationText = "";
+  let creationTimeText = "";
   const onLog = ({ message }) => {
-    const m = /Duration:\s*(\d\d):(\d\d):(\d\d)\.(\d+)/.exec(message);
-    if (m) durationText = m[0];
+    const d = /Duration:\s*(\d\d):(\d\d):(\d\d)\.(\d+)/.exec(message);
+    if (d) durationText = d[0];
+    if (!creationTimeText) {
+      const c = /creation_time\s*:\s*(.+)/.exec(message);
+      if (c) creationTimeText = c[1].trim();
+    }
   };
   instance.on("log", onLog);
   try {
@@ -244,13 +249,23 @@ async function probeDuration(instance, inputName) {
   }
   instance.off("log", onLog);
 
+  let durationSeconds = null;
   const m = /Duration:\s*(\d\d):(\d\d):(\d\d)\.(\d+)/.exec(durationText);
-  if (!m) return null;
-  const hours = parseInt(m[1], 10);
-  const mins = parseInt(m[2], 10);
-  const secs = parseInt(m[3], 10);
-  const frac = parseInt(m[4], 10) / Math.pow(10, m[4].length);
-  return hours * 3600 + mins * 60 + secs + frac;
+  if (m) {
+    const hours = parseInt(m[1], 10);
+    const mins = parseInt(m[2], 10);
+    const secs = parseInt(m[3], 10);
+    const frac = parseInt(m[4], 10) / Math.pow(10, m[4].length);
+    durationSeconds = hours * 3600 + mins * 60 + secs + frac;
+  }
+
+  let creationDate = null;
+  if (creationTimeText) {
+    const parsed = new Date(creationTimeText);
+    if (!isNaN(parsed.getTime())) creationDate = parsed;
+  }
+
+  return { durationSeconds, creationDate };
 }
 
 /* ---------- ステップ2→3→4：分割開始 ---------- */
@@ -283,8 +298,8 @@ btnStart.addEventListener("click", async () => {
     fileData = null; // 書き込み終わったら、JS側が持つ分（動画と同じ大きさ）を早めに解放する
 
     progressLabel.textContent = "動画の長さを確認しています…";
-    const duration = await probeDuration(instance, inputName);
-    const totalSeconds = duration && duration > 0 ? duration : SEGMENT_SECONDS;
+    const { durationSeconds, creationDate } = await probeMediaInfo(instance, inputName);
+    const totalSeconds = durationSeconds && durationSeconds > 0 ? durationSeconds : SEGMENT_SECONDS;
 
     // 動画のビットレート（1秒あたりのデータ量）を概算し、大きい動画では
     // パーツ1個分のデータ量が目標値を超えないよう、区切り時間を自動で短くする。
@@ -310,15 +325,24 @@ btnStart.addEventListener("click", async () => {
       const outName = `out_${String(i).padStart(3, "0")}.mp4`;
       const nominalStart = i * effectiveSegmentSeconds;
 
-      await instance.exec([
+      const execArgs = [
         "-ss", String(nominalStart),
         "-i", inputName,
         "-t", String(effectiveSegmentSeconds),
         "-map", "0:v:0",
         "-map", "0:a:0?",
         "-c", "copy",
-        outName,
-      ]);
+        "-map_metadata", "0",
+      ];
+      if (creationDate) {
+        // 写真アプリで「分割前データの直後」に順番通り並ぶよう、
+        // 元動画の撮影日時 + このパーツの開始位置（+1秒）を撮影日時として設定する。
+        const segTime = new Date(creationDate.getTime() + (nominalStart + 1) * 1000);
+        execArgs.push("-metadata", `creation_time=${segTime.toISOString()}`);
+      }
+      execArgs.push(outName);
+
+      await instance.exec(execArgs);
 
       const data = await instance.readFile(outName);
       try {
