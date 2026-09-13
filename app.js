@@ -34,6 +34,7 @@ const resultHeading = document.getElementById("result-heading");
 const resultSingleNote = document.getElementById("result-single-note");
 const segmentList = document.getElementById("segment-list");
 const toastEl = document.getElementById("toast");
+const errorDetailEl = document.getElementById("error-detail");
 
 let currentFile = null;
 let ffmpeg = null;
@@ -63,6 +64,21 @@ const MEMORY_HINT = "端末のメモリが不足していないか確認して�
 
 function showErrorToast(detail) {
   showToast(`処理に失敗しました。${MEMORY_HINT}${detail ? " " + detail : ""}`, "error");
+}
+
+function clearErrorDetail() {
+  errorDetailEl.hidden = true;
+  errorDetailEl.textContent = "";
+}
+
+function showErrorDetail(err) {
+  const name = (err && err.name) || "UnknownError";
+  const message = (err && err.message) || String(err);
+  const fileInfo = currentFile
+    ? `${currentFile.name} / ${formatBytes(currentFile.size)} / ${currentFile.type || "type不明"}`
+    : "不明";
+  errorDetailEl.textContent = `エラー詳細（サポート用）\n${name}: ${message}\n動画: ${fileInfo}`;
+  errorDetailEl.hidden = false;
 }
 
 /* ---------- 画面が自動で消えないようにする（対応端末のみ） ---------- */
@@ -139,6 +155,7 @@ btnRestart.addEventListener("click", () => {
 function resetToSelect() {
   currentFile = null;
   fileInput.value = "";
+  clearErrorDetail();
   showScreen("select");
 }
 
@@ -195,6 +212,7 @@ function updateProgress(ratio) {
 /* ---------- ステップ2→3→4：分割開始 ---------- */
 btnStart.addEventListener("click", async () => {
   if (!currentFile) return;
+  clearErrorDetail();
 
   if (currentFile.size > LARGE_FILE_WARN_BYTES) {
     showToast("大きな動画です。端末のメモリが不足する場合があります。", "caution", 5000);
@@ -269,6 +287,7 @@ btnStart.addEventListener("click", async () => {
     console.error(err);
     ffmpeg = null;
     showErrorToast("動画を短くするか、他のアプリを閉じてからもう一度お試しください。");
+    showErrorDetail(err);
     showScreen("ready");
   } finally {
     releaseWakeLock();
@@ -386,17 +405,19 @@ function renderResults(segments) {
 }
 
 /* ---------- 想定外のクラッシュも必ず日本語で伝える ---------- */
-window.addEventListener("error", () => {
+window.addEventListener("error", (event) => {
   if (!screens.processing.hidden) {
     releaseWakeLock();
     showErrorToast();
+    showErrorDetail(event.error || { name: "Error", message: event.message });
     showScreen("ready");
   }
 });
-window.addEventListener("unhandledrejection", () => {
+window.addEventListener("unhandledrejection", (event) => {
   if (!screens.processing.hidden) {
     releaseWakeLock();
     showErrorToast();
+    showErrorDetail(event.reason);
     showScreen("ready");
   }
 });

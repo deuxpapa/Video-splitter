@@ -166,6 +166,23 @@ html, body {
   border-radius: 6px;
 }
 
+/* 失敗時の技術的な詳細（開発者向け・折りたたみ表示） */
+.error-detail {
+  margin-top: 20px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-sub);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* 選択済みファイルカード */
 .file-card {
   display: flex;
