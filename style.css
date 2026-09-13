@@ -52,6 +52,11 @@ html, body {
   margin: 0;
   font-weight: 700;
 }
+.app-header__version {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-sub);
+}
 .app-header__help {
   color: var(--accent-dark);
   text-decoration: none;

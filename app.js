@@ -6,6 +6,9 @@
    処理はすべて端末内（ブラウザ内）で完結し、外部へ動画を送信しない。
    ========================================================== */
 
+// 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
+const APP_VERSION = "2026-09-13.1";
+
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const FFMPEG_VERSION = "0.12.10";
 const UTIL_VERSION = "0.12.1";
@@ -35,6 +38,9 @@ const resultSingleNote = document.getElementById("result-single-note");
 const segmentList = document.getElementById("segment-list");
 const toastEl = document.getElementById("toast");
 const errorDetailEl = document.getElementById("error-detail");
+const versionTagEl = document.getElementById("version-tag");
+
+versionTagEl.textContent = `version ${APP_VERSION}`;
 
 let currentFile = null;
 let ffmpeg = null;
