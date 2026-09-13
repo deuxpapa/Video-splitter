@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.1";
+const APP_VERSION = "2026-09-13.2";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const FFMPEG_VERSION = "0.12.10";
@@ -46,6 +46,7 @@ let currentFile = null;
 let ffmpeg = null;
 let toastTimer = null;
 let wakeLock = null;
+let ffmpegLog = [];
 
 /* ---------- 画面切り替え ---------- */
 function showScreen(name) {
@@ -83,7 +84,10 @@ function showErrorDetail(err) {
   const fileInfo = currentFile
     ? `${currentFile.name} / ${formatBytes(currentFile.size)} / ${currentFile.type || "type不明"}`
     : "不明";
-  errorDetailEl.textContent = `エラー詳細（サポート用）\n${name}: ${message}\n動画: ${fileInfo}`;
+  const logTail = ffmpegLog.slice(-15).join("\n");
+  errorDetailEl.textContent =
+    `エラー詳細（サポート用）\n${name}: ${message}\n動画: ${fileInfo}` +
+    (logTail ? `\n---- 内部ログ(直近) ----\n${logTail}` : "");
   errorDetailEl.hidden = false;
 }
 
@@ -195,6 +199,10 @@ async function ensureFFmpeg() {
   instance.on("progress", ({ progress }) => {
     updateProgress(progress);
   });
+  instance.on("log", ({ message }) => {
+    ffmpegLog.push(message);
+    if (ffmpegLog.length > 60) ffmpegLog.shift();
+  });
 
   progressLabel.textContent = "分割の準備をしています…";
 
@@ -219,6 +227,7 @@ function updateProgress(ratio) {
 btnStart.addEventListener("click", async () => {
   if (!currentFile) return;
   clearErrorDetail();
+  ffmpegLog = [];
 
   if (currentFile.size > LARGE_FILE_WARN_BYTES) {
     showToast("大きな動画です。端末のメモリが不足する場合があります。", "caution", 5000);
