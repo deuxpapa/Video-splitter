@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-13.2";
+const APP_VERSION = "2026-09-13.3";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const FFMPEG_VERSION = "0.12.10";
@@ -252,8 +252,9 @@ btnStart.addEventListener("click", async () => {
 
     await instance.exec([
       "-i", inputName,
+      "-map", "0:v:0",
+      "-map", "0:a:0?",
       "-c", "copy",
-      "-map", "0",
       "-f", "segment",
       "-segment_time", String(SEGMENT_SECONDS),
       "-reset_timestamps", "1",
