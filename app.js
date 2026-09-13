@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.1";
+const APP_VERSION = "2026-09-14.2";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -385,7 +385,10 @@ btnStart.addEventListener("click", async () => {
         "-map", "0:v:0",
         "-map", "0:a:0?",
         "-c", "copy",
-        "-map_metadata", "0"
+        "-map_metadata", "0",
+        // MP4/MOVは既定だと標準的でないメタデータ項目を書き込まずに捨ててしまうため、
+        // 独自キー（com.apple.quicktime.creationdate）を確実に書き込むために必要
+        "-movflags", "use_metadata_tags"
       );
       if (creationDate) {
         // 写真アプリで「分割前データの直後」に順番通り並ぶよう、
