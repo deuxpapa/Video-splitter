@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.10";
+const APP_VERSION = "2026-09-14.11";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -335,14 +335,18 @@ btnStart.addEventListener("click", async () => {
   const baseName = getBaseName(currentFile.name);
 
   try {
+    // 動画データはここで一度だけ読み込み、パーツごとに使い回す。
+    // （以前はパーツごとに毎回読み込み直しており、長い動画・パーツ数が多い動画で
+    // 　同じ巨大なデータを何度も確保することになり、メモリを圧迫していた）
+    progressLabel.textContent = "動画を読み込んでいます…";
+    let sharedFileData = new Uint8Array(await currentFile.arrayBuffer());
+
     // 動画の長さ・撮影日時を確認するためだけに、一度エンジンを読み込む。
     // 確認が終わったら、このエンジンは完全に終了させる（下記参照）。
     let probeInstance = await ensureFFmpeg();
-
-    progressLabel.textContent = "動画を読み込んでいます…";
-    let fileData = new Uint8Array(await currentFile.arrayBuffer());
-    await probeInstance.writeFile(inputName, fileData);
-    fileData = null; // 書き込み終わったら、JS側が持つ分（動画と同じ大きさ）を早めに解放する
+    // writeFile はデータをWorkerへ「転送」するため、渡した側は使えなくなる（detachされる）。
+    // sharedFileData 自体は後のパーツでも使うので、コピーを渡す。
+    await probeInstance.writeFile(inputName, sharedFileData.slice());
 
     progressLabel.textContent = "動画の長さを確認しています…";
     const { durationSeconds, creationDate: probedCreationDate } = await probeMediaInfo(probeInstance, inputName);
@@ -398,10 +402,8 @@ btnStart.addEventListener("click", async () => {
 
       const segInstance = await ensureFFmpeg();
 
-      progressLabel.textContent = `動画を読み込んでいます…${progressPartLabel}`;
-      let segFileData = new Uint8Array(await currentFile.arrayBuffer());
-      await segInstance.writeFile(inputName, segFileData);
-      segFileData = null;
+      progressLabel.textContent = `動画を書き込んでいます…${progressPartLabel}`;
+      await segInstance.writeFile(inputName, sharedFileData.slice());
 
       progressLabel.textContent = `切り出しています…${progressPartLabel}`;
       updateProgress(progressBase);
@@ -469,6 +471,8 @@ btnStart.addEventListener("click", async () => {
         sizeBytes: data.byteLength,
       });
     }
+
+    sharedFileData = null; // 全パーツ処理し終えたので、JS側が持つ動画データ分を解放する
 
     if (segments.length === 0) {
       throw new Error("分割結果を読み取れませんでした。");
