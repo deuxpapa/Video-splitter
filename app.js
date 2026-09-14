@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.6";
+const APP_VERSION = "2026-09-14.7";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -37,6 +37,7 @@ const progressLabel = document.getElementById("progress-label");
 const progressElapsedEl = document.getElementById("progress-elapsed");
 const resultHeading = document.getElementById("result-heading");
 const resultElapsedEl = document.getElementById("result-elapsed");
+const resultSourceDateEl = document.getElementById("result-source-date");
 const resultSingleNote = document.getElementById("result-single-note");
 const segmentList = document.getElementById("segment-list");
 const toastEl = document.getElementById("toast");
@@ -468,6 +469,10 @@ btnStart.addEventListener("click", async () => {
 
     renderResults(segments);
     resultElapsedEl.textContent = `処理時間 ${formatDuration((Date.now() - elapsedStartMs) / 1000)}`;
+    // 撮影日時をうまく設定できたか（＝写真アプリの日付が変わらない場合、原因の切り分けに使う）
+    resultSourceDateEl.textContent = creationDate
+      ? `元動画の撮影日時として ${creationDate.toLocaleString("ja-JP")} を設定しました`
+      : "元動画から撮影日時を読み取れなかったため、保存した日時になります";
     showScreen("result");
     showToast("分割が完了しました", "success");
   } catch (err) {
