@@ -1,4 +1,4 @@
-const CACHE_NAME = "video-splitter-shell-v2";
+const CACHE_NAME = "video-splitter-shell-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -13,7 +13,12 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      // GitHub Pagesは Cache-Control: max-age=600 を付けてくるため、
+      // 普通に fetch するとブラウザのHTTPキャッシュ経由で古い内容を
+      // 拾ってしまうことがある。"no-store" で毎回ネットワークから取り直す。
+      cache.addAll(APP_SHELL.map((path) => new Request(path, { cache: "no-store" })))
+    )
   );
   self.skipWaiting();
 });
@@ -35,9 +40,12 @@ self.addEventListener("fetch", (event) => {
   }
   // ネット接続があるときは常に最新版を取りに行き、取れた分をキャッシュに保存する。
   // オフラインなど取得に失敗したときだけ、保存済みのキャッシュを使う。
-  // （キャッシュ優先にすると、更新してもずっと古い画面のままになってしまうため）
+  // "no-store" を指定し、ブラウザ自身のHTTPキャッシュも経由させず、
+  // 必ずネットワークまで取りに行く（GitHub Pagesのキャッシュ指示のせいで
+  // 更新後もしばらく古い内容が返ってくるのを防ぐため）。
+  const freshRequest = new Request(event.request, { cache: "no-store" });
   event.respondWith(
-    fetch(event.request)
+    fetch(freshRequest)
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
