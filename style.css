@@ -335,13 +335,6 @@ html, body {
   border-radius: 12px;
   background: #000;
 }
-.segment-item__hint {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--text-sub);
-  text-align: center;
-}
-
 /* トースト */
 .toast {
   position: fixed;

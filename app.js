@@ -7,7 +7,7 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.5";
+const APP_VERSION = "2026-09-14.6";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
@@ -573,29 +573,18 @@ function renderResults(segments) {
     row.appendChild(info);
     row.appendChild(saveBtn);
 
+    // プレビューは「内容を確認するだけ」の表示に徹する（長押しでの直接保存は
+    // iPhone側の複数動画の自動再生制限や、長押しジェスチャーが周囲の文字の
+    // 選択に取られてしまう問題があり、安定して動かせなかったため取りやめた）。
     const preview = document.createElement("video");
     preview.className = "segment-item__preview";
     preview.src = seg.url;
-    // 再生バー付き（controls）だと、長押しがシーク用のルーペ機能に取られてしまい、
-    // 「ビデオを保存」の長押しメニューが出てこない。そのため、操作用のバーは持たせず
-    // 無音の自動再生ループにする（内容を見るだけならこれで十分）。
-    preview.controls = false;
-    preview.muted = true;
-    preview.loop = true;
-    preview.autoplay = true;
+    preview.controls = true;
     preview.playsInline = true;
-    // blob: URL（端末内のデータ）なので、"auto" にしても通信は発生しない。
-    // "metadata" のままだと、iPhoneで長押しの「ビデオを保存」が反応しないことがあるため。
-    preview.preload = "auto";
     preview.setAttribute("aria-label", `${seg.index}番目のプレビュー`);
-
-    const hint = document.createElement("p");
-    hint.className = "segment-item__hint";
-    hint.textContent = "動画を長押し→「ビデオを保存」で、写真に直接保存できます";
 
     li.appendChild(row);
     li.appendChild(preview);
-    li.appendChild(hint);
     segmentList.appendChild(li);
   }
 }
