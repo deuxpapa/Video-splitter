@@ -172,6 +172,17 @@ html, body {
 }
 
 /* 失敗時の技術的な詳細（開発者向け・折りたたみ表示） */
+.warn-box {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #f0c674;
+  border-radius: var(--radius);
+  background: #fff8e6;
+  color: #7a5b00;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .error-detail {
   margin-top: 20px;
   padding: 10px 12px;

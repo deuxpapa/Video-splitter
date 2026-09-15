@@ -7,12 +7,16 @@
    ========================================================== */
 
 // 更新するたびに手動で書き換える（画面に表示され、更新が反映されたかの確認に使う）
-const APP_VERSION = "2026-09-14.12";
+const APP_VERSION = "2026-09-15.1";
 
 const SEGMENT_SECONDS = 110; // 目安の区切り時間（実際の区切りは直後のキーフレームになるため、多少前後する）
 const TARGET_SEGMENT_BYTES = 113 * 1024 * 1024; // 1パーツあたりの目標データ量（大きい動画では、これを超えないようパーツを短くする）
 const MIN_SEGMENT_SECONDS = 20; // パーツを短くする場合でも、これより短くはしない
 const MIN_TAIL_SECONDS = 5; // 最後の端数がこの秒数以下なら、独立させず1つ前のパーツに含める
+// 動画ファイル自体をまず端末のメモリに丸ごと読み込む必要があるため、これより大きい動画は
+// 読み込みの時点でクラッシュする実例が確認されている（337MBは成功、724MBは数秒で失敗）。
+// 安全側に寄せた目安値。これを超える場合は、処理を始める前に警告を表示する。
+const SIZE_WARN_BYTES = 450 * 1024 * 1024;
 const FFMPEG_VERSION = "0.12.10";
 const UTIL_VERSION = "0.12.1";
 const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_VERSION}/dist/esm`;
@@ -28,6 +32,7 @@ const screens = {
 const fileInput = document.getElementById("file-input");
 const readyFilename = document.getElementById("ready-filename");
 const readyMeta = document.getElementById("ready-meta");
+const readySizeWarning = document.getElementById("ready-size-warning");
 const btnStart = document.getElementById("btn-start");
 const btnReselect = document.getElementById("btn-reselect");
 const btnRestart = document.getElementById("btn-restart");
@@ -154,6 +159,16 @@ fileInput.addEventListener("change", () => {
 
   readyFilename.textContent = file.name;
   readyMeta.textContent = `${formatBytes(file.size)}・動画の長さは分割開始時に確認します`;
+
+  if (file.size > SIZE_WARN_BYTES) {
+    readySizeWarning.textContent =
+      `この動画はサイズが大きいため（${formatBytes(file.size)}）、この端末では処理中にアプリが` +
+      `強制終了してしまう可能性があります。先に写真アプリの編集機能で2〜3個に大まかに分けてから、` +
+      `それぞれをこのアプリにかけることをおすすめします。`;
+    readySizeWarning.hidden = false;
+  } else {
+    readySizeWarning.hidden = true;
+  }
 
   showScreen("ready");
 });
